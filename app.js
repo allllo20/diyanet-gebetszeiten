@@ -1,6 +1,10 @@
 'use strict';
 
-const API = 'https://ezanvakti.imsakiyem.com/api';
+const DIYANET = 'https://namazvakitleri.diyanet.gov.tr';
+const READER = 'https://r.jina.ai/';
+const NOMINATIM = 'https://nominatim.openstreetmap.org';
+const monthNumbers = { OCAK:'01', SUBAT:'02', MART:'03', NISAN:'04', MAYIS:'05', HAZIRAN:'06', TEMMUZ:'07', AGUSTOS:'08', EYLUL:'09', EKIM:'10', KASIM:'11', ARALIK:'12' };
+const countryAliases = { TURKIYE:'TURKEY', 'UNITED STATES':'USA', 'UNITED STATES OF AMERICA':'USA', CZECHIA:'CZECH REPUBLIC', 'NORTH MACEDONIA':'MACEDONIA', RUSSIA:'RUSSIAN FEDERATION' };
 const prayers = [
   ['imsak', 'Imsak'], ['gunes', 'Sonnenaufgang'], ['ogle', 'Mittag'],
   ['ikindi', 'Nachmittag'], ['aksam', 'Abend'], ['yatsi', 'Nacht']
@@ -19,6 +23,7 @@ const template = document.querySelector('#prayer-template');
 let theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 let selectedLocation = null;
 let clockTimer = null;
+let countriesCache = null;
 
 function localDateString(date = new Date()) {
   const year = date.getFullYear();
@@ -51,48 +56,87 @@ function setLoading(loading) {
   submitButton.querySelector('span').textContent = loading ? 'Wird geladen …' : 'Gebetszeiten anzeigen';
 }
 
-async function request(path) {
-  const response = await fetch(`${API}${path}`, { headers: { Accept: 'application/json' } });
-  if (!response.ok) throw new Error(`Serverantwort ${response.status}`);
-  const payload = await response.json();
-  if (!payload.success) throw new Error(payload.message || 'Die Anfrage konnte nicht verarbeitet werden.');
-  return payload.data || [];
+async function fetchText(url) {
+  const response = await fetch(`${READER}${url}`, { headers: { Accept: 'text/plain' } });
+  if (!response.ok) throw new Error(`Abruf der Diyanet-Seite fehlgeschlagen (${response.status}).`);
+  return response.text();
+}
+
+function extractJson(text) {
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start < 0 || end <= start) throw new Error('Die offizielle Diyanet-Ortsliste konnte nicht gelesen werden.');
+  return JSON.parse(text.slice(start, end + 1));
 }
 
 function normalize(value) {
-  return value.trim().toLocaleUpperCase('de-DE');
+  return String(value || '').trim().toLocaleUpperCase('tr-TR')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/İ/g,'I').replace(/Ş/g,'S').replace(/Ğ/g,'G').replace(/Ü/g,'U').replace(/Ö/g,'O').replace(/Ç/g,'C')
+    .replace(/[^A-Z0-9]+/g, ' ').trim();
+}
+
+async function getCountries() {
+  if (!countriesCache) countriesCache = extractJson(await fetchText(`${DIYANET}/assets/locations/countries.json`));
+  return countriesCache;
+}
+
+async function geocode(query) {
+  const url = `${NOMINATIM}/search?format=jsonv2&addressdetails=1&limit=8&accept-language=en&q=${encodeURIComponent(query)}`;
+  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!response.ok) throw new Error('Der Ortsname konnte nicht geografisch zugeordnet werden.');
+  return response.json();
+}
+
+function officialCountryName(country, officialCountries) {
+  const wanted = countryAliases[normalize(country)] || normalize(country);
+  return officialCountries.find(item => normalize(item.CountryName) === wanted)?.CountryName || null;
 }
 
 async function searchLocations(query) {
-  const data = await request(`/locations/search/districts?q=${encodeURIComponent(query)}`);
-  const exact = data.find(item => normalize(item.name) === normalize(query));
-  if (exact) return { choice: exact, all: data };
-  if (data.length === 1) return { choice: data[0], all: data };
-  return { choice: null, all: data.slice(0, 8) };
+  const geoResults = await geocode(query);
+  const officialCountries = await getCountries();
+  const groups = new Map();
+  geoResults.forEach(result => {
+    const country = officialCountryName(result.address?.country, officialCountries);
+    if (!country) return;
+    const city = result.address?.city || result.address?.town || result.address?.village || result.address?.municipality || result.address?.county || query;
+    if (!groups.has(country)) groups.set(country, new Set());
+    groups.get(country).add(city);
+  });
+  const found = [];
+  for (const [country, terms] of [...groups].slice(0, 3)) {
+    const locations = extractJson(await fetchText(`${DIYANET}/assets/locations/${encodeURIComponent(country)}.json`));
+    const needles = [...terms, query].map(normalize).filter(Boolean);
+    locations.forEach(item => {
+      const city = normalize(item.City);
+      if (needles.some(term => city === term || city.includes(term) || term.includes(city)))
+        found.push({ id:item.CityID, name:item.City, state:item.State, country:item.Country });
+    });
+  }
+  const unique = [...new Map(found.map(item => [item.id, item])).values()];
+  const exact = unique.find(item => normalize(item.name) === normalize(query));
+  if (exact) return { choice: exact, all: unique };
+  if (unique.length === 1) return { choice: unique[0], all: unique };
+  return { choice: null, all: unique.slice(0, 10) };
 }
 
 function showMatches(locations) {
   matchesEl.replaceChildren();
-  if (!locations.length) {
-    matchesEl.hidden = true;
-    return;
-  }
   locations.forEach(place => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'match-button';
-    const state = place.state?.name_en || place.state?.name || '';
-    const country = place.country?.name_en || place.country?.name || '';
-    button.innerHTML = `<strong>${escapeHtml(place.name_en || place.name)}</strong><span>${escapeHtml([state, country].filter(Boolean).join(', '))}</span>`;
+    button.innerHTML = `<strong>${escapeHtml(place.name)}</strong><span>${escapeHtml([place.state, place.country].filter(Boolean).join(', '))}</span>`;
     button.addEventListener('click', () => {
       selectedLocation = place;
-      locationInput.value = place.name_en || place.name;
+      locationInput.value = place.name;
       matchesEl.hidden = true;
       loadPrayerTime(place);
     });
     matchesEl.append(button);
   });
-  matchesEl.hidden = false;
+  matchesEl.hidden = !locations.length;
 }
 
 function escapeHtml(text) {
@@ -101,51 +145,61 @@ function escapeHtml(text) {
   return element.innerHTML;
 }
 
-async function loadPrayerTime(place) {
-  setLoading(true);
-  setStatus('Gebetszeiten werden abgerufen …');
-  try {
-    const date = dateInput.value;
-    const rows = await request(`/prayer-times/${encodeURIComponent(place._id)}/range?startDate=${date}&endDate=${date}`);
-    if (!rows.length) throw new Error('Für diesen Ort und dieses Datum liegen keine Daten vor. Probiere ein Datum im verfügbaren Datenbestand.');
-    renderResult(rows[0], place);
-    setStatus('');
-  } catch (error) {
-    setStatus(error.message || 'Die Gebetszeiten konnten nicht geladen werden.', true);
-  } finally {
-    setLoading(false);
-  }
+function slugify(text) { return normalize(text).toLowerCase().replace(/\s+/g, '-'); }
+
+function parseTurkishDate(value) {
+  const parts = value.trim().split(/\s+/);
+  const month = monthNumbers[normalize(parts[1])];
+  return parts.length >= 3 && month ? `${parts[2]}-${month}-${parts[0].padStart(2,'0')}` : null;
 }
 
-function renderResult(row, place) {
-  document.querySelector('#result-location').textContent = locationLabel(row, place);
-  document.querySelector('#result-date').textContent = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${dateInput.value}T12:00:00`));
+function parseDiyanetPage(markdown, requestedDate) {
+  for (const line of markdown.split('\n').filter(line => /^\|\s*\d{1,2}\s+\S+\s+\d{4}\s+/.test(line))) {
+    const cells = line.split('|').slice(1,-1).map(cell => cell.trim());
+    if (cells.length >= 8 && parseTurkishDate(cells[0]) === requestedDate)
+      return { hijri:cells[1], times:{ imsak:cells[2], gunes:cells[3], ogle:cells[4], ikindi:cells[5], aksam:cells[6], yatsi:cells[7] } };
+  }
+  return null;
+}
+
+async function loadPrayerTime(place) {
+  setLoading(true);
+  setStatus('Die offizielle Diyanet-Seite wird geladen und geparst …');
+  try {
+    const officialUrl = `${DIYANET}/tr-TR/${encodeURIComponent(place.id)}/${slugify(place.name)}-icin-namaz-vakti`;
+    const row = parseDiyanetPage(await fetchText(officialUrl), dateInput.value);
+    if (!row) throw new Error('Dieses Datum ist auf der aktuellen Diyanet-Seite nicht enthalten. Wähle einen von Diyanet veröffentlichten Zeitraum.');
+    renderResult(row, place, officialUrl);
+    setStatus('');
+  } catch (error) {
+    setStatus(error.message || 'Die offizielle Diyanet-Seite konnte nicht ausgewertet werden.', true);
+  } finally { setLoading(false); }
+}
+
+function renderResult(row, place, officialUrl) {
+  document.querySelector('#result-location').textContent = [place.name, place.state, place.country].filter(Boolean).join(' · ');
+  document.querySelector('#result-date').textContent = new Intl.DateTimeFormat('de-DE', { weekday:'long', day:'2-digit', month:'long', year:'numeric' }).format(new Date(`${dateInput.value}T12:00:00`));
   const grid = document.querySelector('#prayer-grid');
   grid.replaceChildren();
-  prayers.forEach(([key, label], index) => {
+  prayers.forEach(([key,label], index) => {
     const card = template.content.firstElementChild.cloneNode(true);
-    card.querySelector('.prayer-index').textContent = String(index + 1).padStart(2, '0');
+    card.querySelector('.prayer-index').textContent = String(index+1).padStart(2,'0');
     card.querySelector('h3').textContent = label;
     card.querySelector('time').textContent = row.times[key];
     card.querySelector('time').dateTime = `${dateInput.value}T${row.times[key]}:00`;
     card.dataset.key = key;
     grid.append(card);
   });
-  document.querySelector('#source-note').textContent = `Quelle laut Datensatz: ${row.meta?.source || 'Diyanet İşleri Başkanlığı'} · ${row.hijri_date?.full_date || ''}`;
-  resultEl.hidden = false;
-  emptyEl.hidden = true;
+  const source = document.querySelector('#source-note');
+  source.replaceChildren('Direkt aus der offiziellen Diyanet-Seite geparst · ', row.hijri, ' · ');
+  const link = document.createElement('a');
+  link.href = officialUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Original öffnen';
+  source.append(link);
+  resultEl.hidden = false; emptyEl.hidden = true;
   updateNextPrayer(row.times);
   clearInterval(clockTimer);
-  if (dateInput.value === localDateString()) clockTimer = setInterval(() => updateNextPrayer(row.times), 30000);
-  resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function locationLabel(row, fallback) {
-  const district = row.district_id || fallback;
-  const city = district.name_en || district.name || locationInput.value;
-  const state = district.state_id?.name_en || district.state_id?.name || '';
-  const country = district.country_id?.name_en || district.country_id?.name || '';
-  return [city, state, country].filter(Boolean).join(' · ');
+  if (dateInput.value === localDateString()) clockTimer = setInterval(() => updateNextPrayer(row.times),30000);
+  resultEl.scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
 function updateNextPrayer(times) {
@@ -179,7 +233,7 @@ form.addEventListener('submit', async event => {
   const query = locationInput.value.trim();
   if (query.length < 2) return setStatus('Bitte mindestens zwei Zeichen für den Ort eingeben.', true);
   setLoading(true);
-  setStatus('Ort wird gesucht …');
+  setStatus('Ort wird mit der offiziellen Diyanet-Ortsliste abgeglichen …');
   matchesEl.hidden = true;
   try {
     if (selectedLocation && normalize(selectedLocation.name) === normalize(query)) {
@@ -189,13 +243,13 @@ form.addEventListener('submit', async event => {
     const result = await searchLocations(query);
     if (result.choice) {
       selectedLocation = result.choice;
-      locationInput.value = result.choice.name_en || result.choice.name;
+      locationInput.value = result.choice.name;
       await loadPrayerTime(result.choice);
     } else if (result.all.length) {
       showMatches(result.all);
-      setStatus('Mehrere Orte gefunden. Bitte den passenden Ort auswählen.');
+      setStatus('Mehrere Diyanet-Orte gefunden. Bitte den passenden Ort auswählen.');
     } else {
-      setStatus('Kein passender Ort gefunden. Versuche die internationale Schreibweise oder eine größere Stadt in der Nähe.', true);
+      setStatus('Der Ort wurde in der offiziellen Diyanet-Ortsliste nicht gefunden. Ergänze bei Bedarf Land oder Region.', true);
     }
   } catch (error) {
     setStatus(`Abruf fehlgeschlagen: ${error.message}`, true);
@@ -214,12 +268,12 @@ locateButton.addEventListener('click', () => {
   navigator.geolocation.getCurrentPosition(async position => {
     try {
       const { latitude, longitude } = position.coords;
-      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=10&accept-language=en`, { headers: { Accept: 'application/json' } });
+      const response = await fetch(`${NOMINATIM}/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=10&accept-language=en`, { headers: { Accept: 'application/json' } });
       if (!response.ok) throw new Error('Ortsname konnte nicht bestimmt werden.');
       const data = await response.json();
       const city = data.address.city || data.address.town || data.address.municipality || data.address.county;
       if (!city) throw new Error('Kein passender Ortsname gefunden.');
-      locationInput.value = city;
+      locationInput.value = `${city}, ${data.address.country || ''}`;
       selectedLocation = null;
       form.requestSubmit();
     } catch (error) {
