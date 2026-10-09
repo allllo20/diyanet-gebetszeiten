@@ -13,9 +13,9 @@ Eine statische, responsive Web-App, die Gebetszeiten nach Ort und Datum anzeigt.
 
 ## Datenquelle
 
-Die App nutzt `https://ezanvakti.imsakiyem.com/api`. Der dort zurückgegebene Datensatz nennt die Diyanet İşleri Başkanlığı als Quelle. Die API ist ein unabhängiger Dienst und nicht die offizielle Diyanet-API.
+Die App verwendet ausschließlich Inhalte von `namazvakitleri.diyanet.gov.tr`: Die Ortskennungen stammen aus offiziellen Diyanet-JSON-Listen, die Zeiten werden aus der offiziellen Diyanet-Ortsseite geparst, und „Original öffnen“ verlinkt die ausgewertete Seite.
 
-Die offizielle Diyanet-API verlangt eine Registrierung und kurzlebige Zugangstoken. Solche Zugangsdaten dürfen nicht in einer öffentlichen GitHub-Pages-App hinterlegt werden. Für eine produktive Anwendung mit der offiziellen API wird daher ein geschütztes Backend oder eine Serverless Function benötigt.
+Da Diyanet keine CORS-Freigabe für Browserabrufe sendet, wird `r.jina.ai` als reiner Lesetransport eingesetzt. Es wird keine Gebetszeiten-API eines Drittanbieters mehr verwendet. Die Datumsauswahl funktioniert für Zeiträume, die Diyanet auf der jeweiligen Ortsseite veröffentlicht.
 
 ## GitHub Pages
 
