@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f1e8">
+  <meta name="description" content="Diyanet-Gebetszeiten nach Ort und Datum anzeigen.">
+  <title>Diyanet Gebetszeiten</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#inhalt">Zum Inhalt springen</a>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="Diyanet Gebetszeiten – Startseite">
+      <svg class="brand-mark" viewBox="0 0 40 40" role="img" aria-label="Halbmond und Horizont">
+        <path d="M25.7 6.5a13.8 13.8 0 1 0 7.8 23.3A15.7 15.7 0 1 1 25.7 6.5Z" fill="currentColor"/>
+        <path d="M7 31.5h26" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span>Vakit</span>
+    </a>
+    <button class="icon-button" type="button" data-theme-toggle aria-label="Dunkelmodus einschalten" title="Darstellung wechseln">
+      <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
+    </button>
+  </header>
+
+  <main id="inhalt">
+    <section class="intro" aria-labelledby="seitentitel">
+      <p class="eyebrow">Gebetszeiten nach Diyanet</p>
+      <h1 id="seitentitel">Ort wählen.<br>Tag im Blick.</h1>
+      <p class="intro-copy">Suche einen Ort und wähle ein Datum. Die passende Tagesübersicht erscheint direkt darunter.</p>
+    </section>
+
+    <section class="search-panel" aria-labelledby="suche-titel">
+      <h2 id="suche-titel" class="sr-only">Ort und Datum auswählen</h2>
+      <form id="search-form" class="search-form">
+        <div class="field field-location">
+          <label for="location">Ort</label>
+          <div class="input-row">
+            <input id="location" name="location" type="search" autocomplete="address-level2" placeholder="z. B. Dresden, Berlin, Istanbul" required minlength="2">
+            <button id="locate-button" class="location-button" type="button" title="Aktuellen Standort verwenden" aria-label="Aktuellen Standort verwenden">
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="date">Datum</label>
+          <input id="date" name="date" type="date" required>
+        </div>
+        <button class="primary-button" type="submit">
+          <span>Gebetszeiten anzeigen</span>
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </form>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <div id="matches" class="matches" hidden aria-label="Gefundene Orte"></div>
+    </section>
+
+    <section id="result" class="result" hidden aria-labelledby="result-title">
+      <div class="result-heading">
+        <div>
+          <p id="result-location" class="eyebrow"></p>
+          <h2 id="result-title">Gebetszeiten</h2>
+          <p id="result-date" class="result-date"></p>
+        </div>
+        <div id="next-prayer" class="next-prayer" hidden>
+          <span>Nächstes Gebet</span>
+          <strong id="next-prayer-name"></strong>
+          <time id="next-prayer-time"></time>
+        </div>
+      </div>
+
+      <div id="prayer-grid" class="prayer-grid" aria-label="Gebetszeiten"></div>
+      <p id="source-note" class="source-note"></p>
+    </section>
+
+    <section id="empty" class="empty-state" aria-live="polite">
+      <svg aria-hidden="true" viewBox="0 0 80 80" width="64" height="64" fill="none">
+        <circle cx="40" cy="40" r="29" stroke="currentColor" stroke-width="2"/>
+        <path d="M40 24v18l12 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h2>Bereit für deine Abfrage</h2>
+      <p>Ort und Datum eingeben – mehr ist nicht nötig.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>Die Anzeige verwendet veröffentlichte Diyanet-Daten über eine unabhängige Schnittstelle. Für religiös verbindliche Auskünfte bitte die offizielle Diyanet-Seite prüfen.</p>
+    <a href="https://namazvakitleri.diyanet.gov.tr/tr-TR" target="_blank" rel="noopener noreferrer">Offizielle Diyanet-Zeiten öffnen</a>
+  </footer>
+
+  <template id="prayer-template">
+    <article class="prayer-card">
+      <span class="prayer-index"></span>
+      <h3></h3>
+      <time></time>
+    </article>
+  </template>
+</body>
+</html>
